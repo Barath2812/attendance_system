@@ -1,24 +1,59 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const periodSchema = new mongoose.Schema(
-  {
-    periodNo: { type: Number, required: true },
-    subjectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject', required: true },
-    staffId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    classId: { type: mongoose.Schema.Types.ObjectId, ref: 'Class', required: true },
+const Timetable = sequelize.define('Timetable', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
   },
-  { _id: false }
-);
-
-const timetableSchema = new mongoose.Schema(
-  {
-    classId: { type: mongoose.Schema.Types.ObjectId, ref: 'Class', required: true },
-    day: { type: String, enum: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], required: true },
-    periods: { type: [periodSchema], default: [] },
+  classId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'classes',
+      key: 'id'
+    }
   },
-  { timestamps: true }
-);
+  day: {
+    type: DataTypes.ENUM('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'),
+    allowNull: false
+  },
+  periodNo: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    validate: {
+      min: 1,
+      max: 8
+    }
+  },
+  subjectId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'subjects',
+      key: 'id'
+    }
+  },
+  staffId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'users',
+      key: 'id'
+    }
+  }
+}, {
+  timestamps: true,
+  tableName: 'timetables',
+  indexes: [
+    {
+      unique: true,
+      fields: ['classId', 'day', 'periodNo']
+    }
+  ]
+});
 
-module.exports = mongoose.model('Timetable', timetableSchema);
+module.exports = Timetable;
 
 

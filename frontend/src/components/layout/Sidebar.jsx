@@ -35,6 +35,11 @@ export default function Sidebar() {
             <NavItem to="/admin/uploads">Upload Master Data</NavItem>
           </>
         )}
+        {user.role === 'student' && (
+          <>
+            <NavItem to="/student">Dashboard</NavItem>
+          </>
+        )}
       </nav>
     </aside>
   )

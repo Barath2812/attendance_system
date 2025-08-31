@@ -1,8 +1,11 @@
 const XLSX = require('xlsx');
-const User = require('../models/User.model');
-const ClassModel = require('../models/Class.model');
-const Subject = require('../models/Subject.model');
-const Timetable = require('../models/Timetable.model');
+const { User, Class, Subject, Timetable, Department, SubjectOffering } = require('../models/index');
+const { Op } = require('sequelize'); // Added Op for sequelize
+
+// Helper function to get password (let User model handle hashing)
+function getPassword(password) {
+  return password || 'Password1!'; // Default password if none provided
+}
 
 function sheetToJson(workbook, name) {
   const sheet = workbook.Sheets[name];
@@ -11,200 +14,425 @@ function sheetToJson(workbook, name) {
 }
 
 exports.importExcel = async (req, res) => {
-  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-  const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
 
-  // Expected sheets: Classes, Students, Staff, Subjects, Timetable
-  const classes = sheetToJson(wb, 'Classes');
-  const students = sheetToJson(wb, 'Students');
-  const staff = sheetToJson(wb, 'Staff');
-  const subjects = sheetToJson(wb, 'Subjects');
-  const timetable = sheetToJson(wb, 'Timetable');
+    // Expected sheets: Classes, Students, Staff, Subjects, Timetable
+    const classes = sheetToJson(wb, 'Classes');
+    const students = sheetToJson(wb, 'Students');
+    const staff = sheetToJson(wb, 'Staff');
+    const subjects = sheetToJson(wb, 'Subjects');
+    const timetable = sheetToJson(wb, 'Timetable');
 
-  // Upsert classes
-  const classNameToId = {};
-  for (const c of classes) {
-    const doc = await ClassModel.findOneAndUpdate(
-      { name: c.Name },
-      { $setOnInsert: { name: c.Name } },
-      { new: true, upsert: true }
-    );
-    classNameToId[c.Name] = doc._id;
-  }
-
-  // Upsert staff
-  const staffEmailToId = {};
-  for (const s of staff) {
-    const role = s.Role?.toLowerCase() === 'counsellor' ? 'counsellor' : 'staff';
-    let doc = await User.findOne({ email: s.Email });
-    if (!doc) {
-      doc = await User.create({ name: s.Name, email: s.Email, password: s.Password || 'Password1!', role });
+    // Upsert classes
+    const classNameToId = {};
+    console.log('\n🏫 PROCESSING CLASSES:');
+    console.log('Total classes in Excel:', classes.length);
+    
+    for (const c of classes) {
+      console.log(`\n--- Processing Class: ${c.Name} ---`);
+      console.log(`Department Code: ${c.DepartmentCode}`);
+      console.log(`Year: ${c.Year}`);
+      console.log(`Semester: ${c.Semester || c.Sem}`);
+      console.log(`Section: ${c.Section || 'A'}`);
+      
+      // First create/update department
+      const [dept] = await Department.findOrCreate({
+        where: { code: String(c.DepartmentCode).toUpperCase() },
+        defaults: { 
+          code: String(c.DepartmentCode).toUpperCase(), 
+          name: String(c.DepartmentCode) 
+        }
+      });
+      console.log(`Department: ${dept.code} (ID: ${dept.id})`);
+      
+      // Then create/update class
+      const [doc] = await Class.findOrCreate({
+        where: { name: c.Name },
+        defaults: { 
+          name: c.Name,
+          departmentId: dept.id, 
+          year: Number(c.Year), 
+          semester: Number(c.Semester || c.Sem), 
+          section: c.Section || 'A' 
+        }
+      });
+      
+      classNameToId[c.Name] = doc.id;
+      console.log(`✅ Class ${c.Name} processed (ID: ${doc.id})`);
     }
-    staffEmailToId[s.Email] = doc._id;
-    if (role === 'counsellor' && s.Class) {
-      await ClassModel.updateOne({ _id: classNameToId[s.Class] }, { $set: { counsellorId: doc._id } });
+    
+    console.log(`\n📚 CLASSES SUMMARY:`);
+    console.log('Classes processed:', Object.keys(classNameToId));
+    console.log('Class ID mapping:', classNameToId);
+
+    // Upsert staff
+    const staffEmailToId = {};
+    for (const s of staff) {
+      const role = s.Role?.toLowerCase() === 'counsellor' ? 'counsellor' : 'staff';
+      let doc = await User.findOne({ where: { email: s.Email } });
+      if (!doc) {
+        doc = await User.create({ 
+          name: s.Name, 
+          email: s.Email, 
+          password: getPassword(s.Password), 
+          role,
+          staffId: s.StaffId || null
+        });
+      }
+      staffEmailToId[s.Email] = doc.id;
+      if (role === 'counsellor' && s.Class) {
+        await Class.update({ counsellorId: doc.id }, { where: { id: classNameToId[s.Class] } });
+      }
     }
-  }
 
-  // Upsert students
-  const studentEmailToId = {};
-  for (const st of students) {
-    const classId = classNameToId[st.Class];
-    let doc = await User.findOne({ email: st.Email });
-    if (!doc) {
-      doc = await User.create({ name: st.Name, email: st.Email, password: st.Password || 'Password1!', role: 'student', classId });
-    } else if (!doc.classId && classId) {
-      doc.classId = classId; await doc.save();
+    // Upsert students
+    const studentEmailToId = {};
+    console.log('Processing students:', students.length);
+    console.log('Available classes:', Object.keys(classNameToId));
+    
+    let processedCount = 0;
+    let skippedCount = 0;
+    
+    for (const st of students) {
+      console.log(`\n--- Processing Student: ${st.Name} ---`);
+      console.log(`Email: ${st.Email}`);
+      console.log(`Class: ${st.Class}`);
+      console.log(`Password: ${st.Password ? 'Provided' : 'Default'}`);
+      
+      const classId = classNameToId[st.Class];
+      console.log(`Class ID found: ${classId}`);
+      
+      if (!classId) {
+        console.log(`❌ ERROR: Class not found for student ${st.Name}. Available classes: ${Object.keys(classNameToId).join(', ')}`);
+        skippedCount++;
+        continue;
+      }
+      
+      let doc = await User.findOne({ where: { email: st.Email } });
+      if (!doc) {
+        doc = await User.create({ 
+          name: st.Name, 
+          email: st.Email, 
+          password: getPassword(st.Password), 
+          role: 'student', 
+          classId 
+        });
+        console.log(`✅ CREATED: Student ${st.Name} in class ${st.Class} (ID: ${doc.id})`);
+        processedCount++;
+      } else {
+        console.log(`Found existing student: ${doc.name} (ID: ${doc.id})`);
+        if (!doc.classId && classId) {
+          await doc.update({ classId });
+          console.log(`✅ UPDATED: Student ${st.Name} assigned to class ${st.Class}`);
+        } else if (doc.classId !== classId) {
+          await doc.update({ classId });
+          console.log(`✅ UPDATED: Student ${st.Name} moved from class ${doc.classId} to ${classId}`);
+        } else {
+          console.log(`ℹ️  Student ${st.Name} already in correct class ${st.Class}`);
+        }
+        processedCount++;
+      }
+      studentEmailToId[st.Email] = doc.id;
     }
-    studentEmailToId[st.Email] = doc._id;
-    await ClassModel.updateOne({ _id: classId }, { $addToSet: { students: doc._id } });
-  }
+    
+    console.log(`\n📊 STUDENT IMPORT SUMMARY:`);
+    console.log(`Total students in Excel: ${students.length}`);
+    console.log(`Successfully processed: ${processedCount}`);
+    console.log(`Skipped (class not found): ${skippedCount}`);
+    console.log(`Student email to ID mapping:`, studentEmailToId);
 
-  // Upsert subjects
-  const subjectCodeToId = {};
-  for (const sub of subjects) {
-    const classId = classNameToId[sub.Class];
-    const staffId = staffEmailToId[sub.StaffEmail];
-    const doc = await Subject.findOneAndUpdate(
-      { code: sub.Code },
-      { $set: { name: sub.Name, code: sub.Code, classId, staffId } },
-      { new: true, upsert: true }
-    );
-    subjectCodeToId[sub.Code] = doc._id;
-    if (staffId) await User.updateOne({ _id: staffId }, { $addToSet: { assignedSubjects: doc._id } });
-  }
+    // Upsert subjects
+    const subjectCodeToId = {};
+    for (const sub of subjects) {
+      const [doc] = await Subject.findOrCreate({
+        where: { code: sub.Code },
+        defaults: { name: sub.Name, code: sub.Code }
+      });
+      subjectCodeToId[sub.Code] = doc.id;
+    }
 
-  // Timetable rows: Day, Class, PeriodNo, SubjectCode, StaffEmail
-  const bulkTT = [];
-  const grouped = {};
-  for (const row of timetable) {
-    const key = `${row.Class}|${row.Day}`;
-    grouped[key] = grouped[key] || [];
-    grouped[key].push({ periodNo: Number(row.PeriodNo), subjectId: subjectCodeToId[row.SubjectCode], staffId: staffEmailToId[row.StaffEmail] });
-  }
-  for (const key of Object.keys(grouped)) {
-    const [className, day] = key.split('|');
-    bulkTT.push({ updateOne: { filter: { classId: classNameToId[className], day }, update: { $set: { periods: grouped[key] } }, upsert: true } });
-  }
-  if (bulkTT.length) await Timetable.bulkWrite(bulkTT);
+    // Create subject offerings
+    for (const sub of subjects) {
+      const classId = classNameToId[sub.Class];
+      const staffId = staffEmailToId[sub.StaffEmail];
+      if (classId && staffId) {
+        await SubjectOffering.findOrCreate({
+          where: { subjectId: subjectCodeToId[sub.Code], classId, staffId }
+        });
+      }
+    }
 
-  res.json({ message: 'Import completed' });
+    // Timetable rows: Day, Class, PeriodNo, SubjectCode, StaffEmail
+    for (const row of timetable) {
+      const classId = classNameToId[row.Class];
+      const subjectId = subjectCodeToId[row.SubjectCode];
+      const staffId = staffEmailToId[row.StaffEmail];
+      
+      if (classId && subjectId && staffId) {
+        await Timetable.findOrCreate({
+          where: { classId, day: row.Day, periodNo: Number(row.PeriodNo) },
+          defaults: {
+            classId,
+            day: row.Day,
+            periodNo: Number(row.PeriodNo),
+            subjectId,
+            staffId
+          }
+        });
+      }
+    }
+
+    // Verify import by checking database
+    console.log('\n🔍 VERIFYING IMPORT...');
+    const totalStudentsInDB = await User.count({ where: { role: 'student' } });
+    const totalStaffInDB = await User.count({ where: { role: { [Op.in]: ['staff', 'counsellor'] } } });
+    const totalClassesInDB = await Class.count();
+    const totalSubjectsInDB = await Subject.count();
+    
+    console.log(`Database verification:`);
+    console.log(`- Total students: ${totalStudentsInDB}`);
+    console.log(`- Total staff: ${totalStaffInDB}`);
+    console.log(`- Total classes: ${totalClassesInDB}`);
+    console.log(`- Total subjects: ${totalSubjectsInDB}`);
+
+    console.log('\n🎉 IMPORT COMPLETED SUCCESSFULLY!');
+    console.log('=====================================');
+    console.log(`Classes processed: ${Object.keys(classNameToId).length}`);
+    console.log(`Staff processed: ${Object.keys(staffEmailToId).length}`);
+    console.log(`Students processed: ${Object.keys(studentEmailToId).length}`);
+    console.log(`Subjects processed: ${Object.keys(subjectCodeToId).length}`);
+    console.log(`Subject Offerings created: ${Object.keys(subjectCodeToId).length * Object.keys(classNameToId).length}`);
+    console.log(`Timetable entries created: ${timetable.length}`);
+    
+    res.json({ 
+      message: 'Import completed successfully',
+      summary: {
+        classes: Object.keys(classNameToId).length,
+        staff: Object.keys(staffEmailToId).length,
+        students: Object.keys(studentEmailToId).length,
+        subjects: Object.keys(subjectCodeToId).length,
+        subjectOfferings: Object.keys(subjectCodeToId).length * Object.keys(classNameToId).length,
+        timetableEntries: timetable.length
+      },
+      verification: {
+        totalStudentsInDB,
+        totalStaffInDB,
+        totalClassesInDB,
+        totalSubjectsInDB
+      }
+    });
+  } catch (error) {
+    console.error('❌ IMPORT ERROR:', error);
+    res.status(500).json({ message: 'Import failed', error: error.message });
+  }
 };
 
 exports.importSheet = async (req, res) => {
-  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-  const { name } = req.params; // Classes | Students | Staff | Subjects | Timetable
-  const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
-  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+    const { name } = req.params; // Classes | Students | Staff | Subjects | Timetable
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
 
-  switch (name) {
+    switch (name) {
     case 'Classes':
       {
-        const ClassModel = require('../models/Class.model');
-        const Department = require('../models/Department.model');
         for (const c of rows) {
-          const dept = await Department.findOneAndUpdate(
-            { code: String(c.DepartmentCode).toUpperCase() },
-            { $setOnInsert: { code: String(c.DepartmentCode).toUpperCase(), name: String(c.DepartmentCode) } },
-            { new: true, upsert: true }
-          );
-          await ClassModel.findOneAndUpdate(
-            { name: c.Name },
-            { $set: { departmentId: dept._id, year: Number(c.Year), semester: Number(c.Semester || c.Sem), section: c.Section || 'A' } },
-            { new: true, upsert: true }
-          );
+          const [dept] = await Department.findOrCreate({
+            where: { code: String(c.DepartmentCode).toUpperCase() },
+            defaults: { 
+              code: String(c.DepartmentCode).toUpperCase(), 
+              name: String(c.DepartmentCode) 
+            }
+          });
+          await Class.findOrCreate({
+            where: { name: c.Name },
+            defaults: { 
+              name: c.Name,
+              departmentId: dept.id, 
+              year: Number(c.Year), 
+              semester: Number(c.Semester || c.Sem), 
+              section: c.Section || 'A' 
+            }
+          });
         }
       }
       break;
     case 'Students':
       {
-        const ClassModel = require('../models/Class.model');
-        const User = require('../models/User.model');
         for (const s of rows) {
-          const klass = await ClassModel.findOne({ name: s.Class });
-          let doc = await User.findOne({ email: s.Email });
-          if (!doc) doc = await User.create({ name: s.Name, email: s.Email, password: s.Password || 'Password1!', role: 'student', classId: klass?._id });
-          if (klass) await ClassModel.updateOne({ _id: klass._id }, { $addToSet: { students: doc._id } });
+          const klass = await Class.findOne({ where: { name: s.Class } });
+          if (!klass) {
+            console.log(`Class not found for student ${s.Name}: ${s.Class}`);
+            continue;
+          }
+          
+          let doc = await User.findOne({ where: { email: s.Email } });
+          if (!doc) {
+            doc = await User.create({ 
+              name: s.Name, 
+              email: s.Email, 
+              password: getPassword(s.Password), 
+              role: 'student', 
+              classId: klass.id 
+            });
+            console.log(`Created student ${s.Name} in class ${klass.name}`);
+          } else {
+            // Update existing student's class if different
+            if (doc.classId !== klass.id) {
+              await doc.update({ classId: klass.id });
+              console.log(`Updated student ${s.Name} to class ${klass.name}`);
+            }
+          }
         }
       }
       break;
     case 'Staff':
       {
-        const Department = require('../models/Department.model');
-        const User = require('../models/User.model');
         for (const st of rows) {
-          const dept = await Department.findOneAndUpdate(
-            { code: String(st.DepartmentCode).toUpperCase() },
-            { $setOnInsert: { code: String(st.DepartmentCode).toUpperCase(), name: String(st.DepartmentCode) } },
-            { new: true, upsert: true }
-          );
+          const [dept] = await Department.findOrCreate({
+            where: { code: String(st.DepartmentCode).toUpperCase() },
+            defaults: { 
+              code: String(st.DepartmentCode).toUpperCase(), 
+              name: String(st.DepartmentCode) 
+            }
+          });
           const role = String(st.Role || 'staff').toLowerCase();
-          let user = await User.findOne({ email: st.Email });
-          if (!user) user = await User.create({ name: st.Name, email: st.Email, password: st.Password || 'Password1!', role, staffId: st.StaffId, departmentId: dept._id });
-          else await User.updateOne({ _id: user._id }, { departmentId: dept._id, staffId: st.StaffId, role });
+          let user = await User.findOne({ where: { email: st.Email } });
+          if (!user) {
+            user = await User.create({ 
+              name: st.Name, 
+              email: st.Email, 
+              password: getPassword(st.Password), 
+              role, 
+              staffId: st.StaffId, 
+              departmentId: dept.id 
+            });
+          } else {
+            await user.update({ departmentId: dept.id, staffId: st.StaffId, role });
+          }
         }
       }
       break;
     case 'Subjects':
       {
-        const Department = require('../models/Department.model');
-        const Subject = require('../models/Subject.model');
         for (const sub of rows) {
-          const dept = await Department.findOneAndUpdate(
-            { code: String(sub.DepartmentCode).toUpperCase() },
-            { $setOnInsert: { code: String(sub.DepartmentCode).toUpperCase(), name: String(sub.DepartmentCode) } },
-            { new: true, upsert: true }
-          );
-          await Subject.findOneAndUpdate(
-            { code: sub.Code },
-            { $set: { code: sub.Code, name: sub.Name, departmentId: dept._id } },
-            { new: true, upsert: true }
-          );
+          const [dept] = await Department.findOrCreate({
+            where: { code: String(sub.DepartmentCode).toUpperCase() },
+            defaults: { 
+              code: String(sub.DepartmentCode).toUpperCase(), 
+              name: String(sub.DepartmentCode) 
+            }
+          });
+          await Subject.findOrCreate({
+            where: { code: sub.Code },
+            defaults: { 
+              code: sub.Code, 
+              name: sub.Name, 
+              departmentId: dept.id 
+            }
+          });
         }
       }
       break;
     case 'Timetable':
       {
-        const ClassModel = require('../models/Class.model');
-        const Subject = require('../models/Subject.model');
-        const User = require('../models/User.model');
-        const Timetable = require('../models/Timetable.model');
-        const map = {};
         for (const row of rows) {
-          const klass = await ClassModel.findOne({ name: row.Class });
-          const subject = await Subject.findOne({ code: row.SubjectCode });
-          const staff = await User.findOne({ email: row.StaffEmail });
+          const klass = await Class.findOne({ where: { name: row.Class } });
+          const subject = await Subject.findOne({ where: { code: row.SubjectCode } });
+          const staff = await User.findOne({ where: { email: row.StaffEmail } });
           if (!klass || !subject || !staff) continue;
-          const key = `${klass._id}|${row.Day}`;
-          map[key] = map[key] || { classId: klass._id, day: row.Day, periods: [] };
-          map[key].periods.push({ periodNo: Number(row.PeriodNo), subjectId: subject._id, staffId: staff._id, classId: klass._id });
-        }
-        for (const k of Object.keys(map)) {
-          const { classId, day, periods } = map[k];
-          await Timetable.findOneAndUpdate({ classId, day }, { $set: { periods } }, { upsert: true });
+          
+          await Timetable.findOrCreate({
+            where: { classId: klass.id, day: row.Day, periodNo: Number(row.PeriodNo) },
+            defaults: {
+              classId: klass.id,
+              day: row.Day,
+              periodNo: Number(row.PeriodNo),
+              subjectId: subject.id,
+              staffId: staff.id
+            }
+          });
         }
       }
       break;
     case 'SubjectOfferings':
       {
-        const ClassModel = require('../models/Class.model');
-        const Subject = require('../models/Subject.model');
-        const User = require('../models/User.model');
-        const SubjectOffering = require('../models/SubjectOffering.model');
         for (const row of rows) {
-          const klass = await ClassModel.findOne({ name: row.Class });
-          const subject = await Subject.findOne({ code: row.SubjectCode });
-          const staff = await User.findOne({ email: row.StaffEmail });
+          const klass = await Class.findOne({ where: { name: row.Class } });
+          const subject = await Subject.findOne({ where: { code: row.SubjectCode } });
+          const staff = await User.findOne({ where: { email: row.StaffEmail } });
           if (!klass || !subject || !staff) continue;
-          await SubjectOffering.findOneAndUpdate({ subjectId: subject._id, classId: klass._id, staffId: staff._id }, {}, { upsert: true });
+          await SubjectOffering.findOrCreate({
+            where: { subjectId: subject.id, classId: klass.id, staffId: staff.id }
+          });
         }
       }
       break;
-    default:
-      return res.status(400).json({ message: 'Unknown sheet' });
-  }
+      default:
+        return res.status(400).json({ message: 'Unknown sheet' });
+    }
 
-  res.json({ message: `${name} imported` });
+    res.json({ message: `${name} imported successfully` });
+  } catch (error) {
+    console.error('Import sheet error:', error);
+    res.status(500).json({ message: 'Import failed', error: error.message });
+  }
+};
+
+// Debug endpoint to check database status
+exports.getDatabaseStatus = async (req, res) => {
+  try {
+    console.log('\n🔍 DATABASE STATUS CHECK');
+    
+    const totalStudents = await User.count({ where: { role: 'student' } });
+    const totalStaff = await User.count({ where: { role: { [Op.in]: ['staff', 'counsellor'] } } });
+    const totalClasses = await Class.count();
+    const totalSubjects = await Subject.count();
+    const totalSubjectOfferings = await SubjectOffering.count();
+    
+    // Get all students with their class assignments
+    const students = await User.findAll({
+      where: { role: 'student' },
+      attributes: ['id', 'name', 'email', 'classId'],
+      include: [{ model: Class, as: 'class', attributes: ['id', 'name'] }]
+    });
+    
+    // Get all classes with student counts
+    const classes = await Class.findAll({
+      attributes: ['id', 'name'],
+      include: [{ model: User, as: 'students', attributes: ['id', 'name', 'email'] }]
+    });
+    
+    console.log(`\n📊 DATABASE SUMMARY:`);
+    console.log(`- Total students: ${totalStudents}`);
+    console.log(`- Total staff: ${totalStaff}`);
+    console.log(`- Total classes: ${totalClasses}`);
+    console.log(`- Total subjects: ${totalSubjects}`);
+    console.log(`- Total subject offerings: ${totalSubjectOfferings}`);
+    
+    console.log(`\n👨‍🎓 STUDENTS DETAILS:`);
+    students.forEach(s => {
+      console.log(`- ${s.name} (${s.email}) -> Class: ${s.class?.name || 'None'} (ID: ${s.classId})`);
+    });
+    
+    console.log(`\n🏫 CLASSES DETAILS:`);
+    classes.forEach(c => {
+      console.log(`- ${c.name} (ID: ${c.id}) -> Students: ${c.students?.length || 0}`);
+    });
+    
+    res.json({
+      summary: { totalStudents, totalStaff, totalClasses, totalSubjects, totalSubjectOfferings },
+      students: students.map(s => ({ id: s.id, name: s.name, email: s.email, classId: s.classId, className: s.class?.name })),
+      classes: classes.map(c => ({ id: c.id, name: c.name, studentCount: c.students?.length || 0 }))
+    });
+    
+  } catch (error) {
+    console.error('Error getting database status:', error);
+    res.status(500).json({ message: 'Failed to get database status', error: error.message });
+  }
 };
 
 

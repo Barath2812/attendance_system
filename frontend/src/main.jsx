@@ -4,11 +4,12 @@ import './index.css'
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext.jsx'
 import { Toaster } from 'react-hot-toast'
-import { StaffRoutes, CounsellorRoutes, AdminRoutes } from './routes/AppRoutes.jsx'
+import { StaffRoutes, CounsellorRoutes, StudentRoutes, AdminRoutes } from './routes/AppRoutes.jsx'
 
 const router = createBrowserRouter([
   ...StaffRoutes,
   ...CounsellorRoutes,
+  ...StudentRoutes,
   ...AdminRoutes,
 ])
 

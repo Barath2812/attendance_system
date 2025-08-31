@@ -1,18 +1,62 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const classSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true, unique: true }, // e.g., IT-2-4-A
-    departmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', required: true },
-    year: { type: Number, required: true },
-    semester: { type: Number, required: true },
-    section: { type: String, default: 'A' },
-    students: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-    counsellorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+const Class = sequelize.define('Class', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
   },
-  { timestamps: true }
-);
+  name: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    unique: true,
+    validate: {
+      notEmpty: true
+    }
+  },
+  departmentId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'departments',
+      key: 'id'
+    }
+  },
+  year: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    validate: {
+      min: 1,
+      max: 10
+    }
+  },
+  semester: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    validate: {
+      min: 1,
+      max: 8
+    }
+  },
+  section: {
+    type: DataTypes.STRING(5),
+    allowNull: false,
+    defaultValue: 'A'
+  },
+  counsellorId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'users',
+      key: 'id'
+    }
+  }
+}, {
+  timestamps: true,
+  tableName: 'classes'
+});
 
-module.exports = mongoose.model('Class', classSchema);
+module.exports = Class;
 
 

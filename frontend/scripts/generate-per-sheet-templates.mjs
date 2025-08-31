@@ -5,8 +5,8 @@ import path from 'node:path'
 const templates = {
   Departments: [['Code', 'Name'], ['IT', 'Information Technology']],
   Classes: [['Name', 'DepartmentCode', 'Year', 'Semester', 'Section'], ['IT-2-4-A', 'IT', '2', '4', 'A']],
-  Students: [['RegNo', 'Name', 'Email', 'Class'], ['22IT001', 'Alice', 'alice@example.com', 'IT-2-4-A']],
-  Staff: [['StaffId', 'Name', 'Email', 'DepartmentCode', 'Role', 'Password'], ['STF001', 'Staff One', 'staff1@example.com', 'IT', 'staff', 'Password1!']],
+  Students: [['RegNo', 'Name', 'Email', 'Class', 'Password'], ['22IT001', 'Alice', 'alice@example.com', 'IT-2-4-A', 'StudentPass123!']],
+  Staff: [['StaffId', 'Name', 'Email', 'DepartmentCode', 'Role', 'Password'], ['STF001', 'Staff One', 'staff1@example.com', 'IT', 'staff', 'StaffPass123!']],
   Subjects: [['Code', 'Name', 'DepartmentCode'], ['IT401', 'Operating Systems', 'IT']],
   SubjectOfferings: [['Class', 'SubjectCode', 'StaffEmail'], ['IT-2-4-A', 'IT401', 'staff1@example.com']],
   Timetable: [['Class', 'Day', 'PeriodNo', 'SubjectCode', 'StaffEmail'], ['IT-2-4-A', 'Mon', '1', 'IT401', 'staff1@example.com']],

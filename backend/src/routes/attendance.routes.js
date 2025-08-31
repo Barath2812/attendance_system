@@ -15,16 +15,16 @@ router.post(
   [
     body('date').notEmpty(),
     body('period').isInt({ min: 1 }),
-    body('classId').isMongoId(),
-    body('subjectId').isMongoId(),
+    body('classId').isInt({ min: 1 }),
+    body('subjectId').isInt({ min: 1 }),
     body('records').isArray({ min: 1 }),
   ],
   markAttendance
 );
 
-router.get('/subject/:subjectId', auth(true), requireRole(['staff', 'counsellor']), [param('subjectId').isMongoId()], getSubjectAttendance);
-router.get('/class/:classId', auth(true), requireRole(['counsellor']), [param('classId').isMongoId()], getClassAttendance);
-router.get('/student/:studentId', auth(true), requireRole(['counsellor', 'staff', 'student']), [param('studentId').isMongoId()], getStudentAttendance);
+router.get('/subject/:subjectId', auth(true), requireRole(['staff', 'counsellor']), [param('subjectId').isInt()], getSubjectAttendance);
+router.get('/class/:classId', auth(true), requireRole(['counsellor']), [param('classId').isInt()], getClassAttendance);
+router.get('/student/:studentId', auth(true), requireRole(['counsellor', 'staff', 'student']), [param('studentId').isInt()], getStudentAttendance);
 
 module.exports = router;
 

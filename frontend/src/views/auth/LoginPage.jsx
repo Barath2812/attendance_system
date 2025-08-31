@@ -18,7 +18,7 @@ export default function LoginPage() {
       await login(email, password)
       toast.success('Logged in')
       const role = JSON.parse(localStorage.getItem('user')).role
-      navigate(role === 'admin' ? '/admin/uploads' : role === 'staff' ? '/staff' : '/counsellor')
+      navigate(role === 'admin' ? '/admin/uploads' : role === 'staff' ? '/staff' : role === 'student' ? '/student' : '/counsellor')
     } catch (e) {
       toast.error('Login failed')
     } finally {
@@ -64,7 +64,7 @@ export default function LoginPage() {
               <Input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
               <Button disabled={loading} className="w-full">{loading ? 'Logging in...' : 'Login'}</Button>
             </form>
-            <p className="text-xs text-gray-500">Use counsellor@example.com or alice@example.com / Password1!</p>
+            <p className="text-xs text-gray-500">Use counsellor@example.com, alice@example.com, or any student/staff email from Excel / Password1!</p>
             <div className="text-sm text-center text-gray-600">
               Don't have an account? <Link to="/register" className="text-blue-600 hover:underline">Register</Link>
             </div>

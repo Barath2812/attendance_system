@@ -1,16 +1,47 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const subjectOfferingSchema = new mongoose.Schema(
-  {
-    subjectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject', required: true },
-    classId: { type: mongoose.Schema.Types.ObjectId, ref: 'Class', required: true },
-    staffId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+const SubjectOffering = sequelize.define('SubjectOffering', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
   },
-  { timestamps: true }
-);
+  subjectId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'subjects',
+      key: 'id'
+    }
+  },
+  classId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'classes',
+      key: 'id'
+    }
+  },
+  staffId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'users',
+      key: 'id'
+    }
+  }
+}, {
+  timestamps: true,
+  tableName: 'subject_offerings',
+  indexes: [
+    {
+      unique: true,
+      fields: ['subjectId', 'classId', 'staffId']
+    }
+  ]
+});
 
-subjectOfferingSchema.index({ subjectId: 1, classId: 1, staffId: 1 }, { unique: true });
-
-module.exports = mongoose.model('SubjectOffering', subjectOfferingSchema);
+module.exports = SubjectOffering;
 
 

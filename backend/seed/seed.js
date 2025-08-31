@@ -1,63 +1,158 @@
 /* eslint-disable no-console */
 require('dotenv').config();
-const mongoose = require('mongoose');
-const { connectToDatabase } = require('../src/config/db');
-const User = require('../src/models/User.model');
-const ClassModel = require('../src/models/Class.model');
-const Subject = require('../src/models/Subject.model');
-const Timetable = require('../src/models/Timetable.model');
+const { connectToDatabase, sequelize } = require('../src/config/db');
+const { Admin, Staff, Student, Class, Subject, Timetable, Department } = require('../src/models/index');
 
 async function run() {
   await connectToDatabase();
+  
+  // Clear existing data
   await Promise.all([
-    User.deleteMany({}),
-    ClassModel.deleteMany({}),
-    Subject.deleteMany({}),
-    Timetable.deleteMany({}),
+    Timetable.destroy({ where: {} }),
+    Admin.destroy({ where: {} }),
+    Staff.destroy({ where: {} }),
+    Student.destroy({ where: {} }),
+    Class.destroy({ where: {} }),
+    Subject.destroy({ where: {} }),
+    Department.destroy({ where: {} }),
   ]);
 
-  const counsellor = await User.create({ name: 'Counsellor', email: 'counsellor@example.com', password: 'Password1!', role: 'counsellor' });
-  const staff1 = await User.create({ name: 'Alice Teacher', email: 'alice@example.com', password: 'Password1!', role: 'staff' });
-  const staff2 = await User.create({ name: 'Bob Teacher', email: 'bob@example.com', password: 'Password1!', role: 'staff' });
+  // Create department
+  const department = await Department.create({ 
+    code: 'CSE', 
+    name: 'Computer Science Engineering' 
+  });
 
-  const students = await User.insertMany(
-    Array.from({ length: 10 }).map((_, i) => ({
-      name: `Student ${i + 1}`,
-      email: `student${i + 1}@example.com`,
-      password: 'Password1!',
-      role: 'student',
-    }))
+  // Create admin user
+  const admin = await Admin.create({ 
+    name: 'System Administrator', 
+    email: 'admin@example.com', 
+    password: 'Password1!',
+    permissions: 'all'
+  });
+
+  // Create staff users
+  const counsellor = await Staff.create({ 
+    name: 'Counsellor', 
+    email: 'counsellor@example.com', 
+    password: 'Password1!', 
+    designation: 'Counsellor',
+    departmentId: department.id
+  });
+  
+  const staff1 = await Staff.create({ 
+    name: 'Alice Teacher', 
+    email: 'alice@example.com', 
+    password: 'Password1!', 
+    designation: 'Assistant Professor',
+    departmentId: department.id
+  });
+  
+  const staff2 = await Staff.create({ 
+    name: 'Bob Teacher', 
+    email: 'bob@example.com', 
+    password: 'Password1!', 
+    designation: 'Associate Professor',
+    departmentId: department.id
+  });
+
+  // Create students
+  const students = await Promise.all(
+    Array.from({ length: 10 }).map((_, i) => 
+      Student.create({
+        name: `Student ${i + 1}`,
+        email: `student${i + 1}@example.com`,
+        password: 'Password1!',
+        regNo: `CSE2024${String(i + 1).padStart(3, '0')}`,
+        rollNo: i + 1
+      })
+    )
   );
 
-  const cls = await ClassModel.create({ name: 'CSE-A', students: students.map((s) => s._id), counsellorId: counsellor._id });
+  // Create class
+  const cls = await Class.create({ 
+    name: 'CSE-A', 
+    departmentId: department.id,
+    year: 2,
+    semester: 3,
+    section: 'A',
+    counsellorId: counsellor.id
+  });
 
-  await User.updateMany({ role: 'student' }, { $set: { classId: cls._id } });
+  // Update students with class
+  await Promise.all(
+    students.map(student => 
+      student.update({ classId: cls.id })
+    )
+  );
 
-  const sub1 = await Subject.create({ name: 'Maths', code: 'MTH101', staffId: staff1._id, classId: cls._id });
-  const sub2 = await Subject.create({ name: 'Physics', code: 'PHY101', staffId: staff2._id, classId: cls._id });
+  // Create subjects
+  const sub1 = await Subject.create({ 
+    name: 'Mathematics', 
+    code: 'MTH101',
+    departmentId: department.id
+  });
+  
+  const sub2 = await Subject.create({ 
+    name: 'Physics', 
+    code: 'PHY101',
+    departmentId: department.id
+  });
 
-  await User.findByIdAndUpdate(staff1._id, { $set: { assignedSubjects: [sub1._id] } });
-  await User.findByIdAndUpdate(staff2._id, { $set: { assignedSubjects: [sub2._id] } });
-
-  // Timetable Mon-Fri with 5 periods default
+  // Create timetable entries
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-  const periods = [
-    { periodNo: 1, subjectId: sub1._id, staffId: staff1._id },
-    { periodNo: 2, subjectId: sub2._id, staffId: staff2._id },
-    { periodNo: 3, subjectId: sub1._id, staffId: staff1._id },
-    { periodNo: 4, subjectId: sub2._id, staffId: staff2._id },
-    { periodNo: 5, subjectId: sub1._id, staffId: staff1._id },
-  ];
+  const timetableEntries = [];
+  
+  days.forEach(day => {
+    timetableEntries.push(
+      Timetable.create({
+        classId: cls.id,
+        day: day,
+        periodNo: 1,
+        subjectId: sub1.id,
+        staffId: staff1.id
+      }),
+      Timetable.create({
+        classId: cls.id,
+        day: day,
+        periodNo: 2,
+        subjectId: sub2.id,
+        staffId: staff2.id
+      }),
+      Timetable.create({
+        classId: cls.id,
+        day: day,
+        periodNo: 3,
+        subjectId: sub1.id,
+        staffId: staff1.id
+      }),
+      Timetable.create({
+        classId: cls.id,
+        day: day,
+        periodNo: 4,
+        subjectId: sub2.id,
+        staffId: staff2.id
+      }),
+      Timetable.create({
+        classId: cls.id,
+        day: day,
+        periodNo: 5,
+        subjectId: sub1.id,
+        staffId: staff1.id
+      })
+    );
+  });
 
-  await Timetable.insertMany(days.map((d) => ({ classId: cls._id, day: d, periods })));
+  await Promise.all(timetableEntries);
 
   console.log('Seed completed. Logins:');
+  console.log('Admin: admin@example.com / Password1!');
   console.log('Counsellor: counsellor@example.com / Password1!');
   console.log('Staff1: alice@example.com / Password1!');
   console.log('Staff2: bob@example.com / Password1!');
   console.log('Students: student1@example.com..student10@example.com / Password1!');
 
-  await mongoose.connection.close();
+  await sequelize.close();
 }
 
 run().catch((e) => {

@@ -4,6 +4,7 @@ import StaffDashboard from '../views/staff/StaffDashboard.jsx'
 import MarkAttendance from '../views/staff/MarkAttendance.jsx'
 import SubjectHistory from '../views/staff/SubjectHistory.jsx'
 import CounsellorDashboard from '../views/counsellor/CounsellorDashboard.jsx'
+import StudentDashboard from '../views/student/StudentDashboard.jsx'
 import { ProtectedRoute, RoleRoute } from './RouteGuards.jsx'
 import AdminUploads from '../views/admin/AdminUploads.jsx'
 
@@ -49,6 +50,19 @@ export const CounsellorRoutes = [
       <ProtectedRoute>
         <RoleRoute role="counsellor">
           <CounsellorDashboard />
+        </RoleRoute>
+      </ProtectedRoute>
+    ),
+  },
+]
+
+export const StudentRoutes = [
+  {
+    path: '/student',
+    element: (
+      <ProtectedRoute>
+        <RoleRoute role="student">
+          <StudentDashboard />
         </RoleRoute>
       </ProtectedRoute>
     ),
