@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 require('dotenv').config();
 const { connectToDatabase, sequelize } = require('../src/config/db');
-const { Admin, Staff, Student, Class, Subject, Timetable, Department } = require('../src/models/index');
+const { User, Class, Subject, Timetable, Department, SubjectOffering } = require('../src/models/index');
 
 async function run() {
   await connectToDatabase();
@@ -9,9 +9,8 @@ async function run() {
   // Clear existing data
   await Promise.all([
     Timetable.destroy({ where: {} }),
-    Admin.destroy({ where: {} }),
-    Staff.destroy({ where: {} }),
-    Student.destroy({ where: {} }),
+    SubjectOffering.destroy({ where: {} }),
+    User.destroy({ where: {} }),
     Class.destroy({ where: {} }),
     Subject.destroy({ where: {} }),
     Department.destroy({ where: {} }),
@@ -24,47 +23,50 @@ async function run() {
   });
 
   // Create admin user
-  const admin = await Admin.create({ 
+  const admin = await User.create({ 
     name: 'System Administrator', 
     email: 'admin@example.com', 
     password: 'Password1!',
-    permissions: 'all'
+    role: 'admin'
   });
 
   // Create staff users
-  const counsellor = await Staff.create({ 
+  const counsellor = await User.create({ 
     name: 'Counsellor', 
     email: 'counsellor@example.com', 
     password: 'Password1!', 
-    designation: 'Counsellor',
+    role: 'counsellor',
     departmentId: department.id
   });
   
-  const staff1 = await Staff.create({ 
+  const staff1 = await User.create({ 
     name: 'Alice Teacher', 
     email: 'alice@example.com', 
     password: 'Password1!', 
-    designation: 'Assistant Professor',
+    role: 'staff',
+    staffId: 'STAFF001',
     departmentId: department.id
   });
   
-  const staff2 = await Staff.create({ 
+  const staff2 = await User.create({ 
     name: 'Bob Teacher', 
     email: 'bob@example.com', 
     password: 'Password1!', 
-    designation: 'Associate Professor',
+    role: 'staff',
+    staffId: 'STAFF002',
     departmentId: department.id
   });
 
   // Create students
   const students = await Promise.all(
     Array.from({ length: 10 }).map((_, i) => 
-      Student.create({
+      User.create({
         name: `Student ${i + 1}`,
         email: `student${i + 1}@example.com`,
         password: 'Password1!',
-        regNo: `CSE2024${String(i + 1).padStart(3, '0')}`,
-        rollNo: i + 1
+        role: 'student',
+        staffId: `STU${String(i + 1).padStart(3, '0')}`,
+        departmentId: department.id
       })
     )
   );
@@ -76,6 +78,7 @@ async function run() {
     year: 2,
     semester: 3,
     section: 'A',
+    capacity: 50,
     counsellorId: counsellor.id
   });
 
@@ -97,6 +100,19 @@ async function run() {
     name: 'Physics', 
     code: 'PHY101',
     departmentId: department.id
+  });
+
+  // Create SubjectOffering records to link staff to classes and subjects
+  await SubjectOffering.create({
+    subjectId: sub1.id,
+    classId: cls.id,
+    staffId: staff1.id
+  });
+
+  await SubjectOffering.create({
+    subjectId: sub2.id,
+    classId: cls.id,
+    staffId: staff2.id
   });
 
   // Create timetable entries

@@ -47,7 +47,7 @@ exports.importExcel = async (req, res) => {
       });
       console.log(`Department: ${dept.code} (ID: ${dept.id})`);
       
-      // Then create/update class
+            // Then create/update class
       const [doc] = await Class.findOrCreate({
         where: { name: c.Name },
         defaults: { 
@@ -55,7 +55,8 @@ exports.importExcel = async (req, res) => {
           departmentId: dept.id, 
           year: Number(c.Year), 
           semester: Number(c.Semester || c.Sem), 
-          section: c.Section || 'A' 
+          section: c.Section || 'A',
+          capacity: Number(c.Capacity) || 50
         }
       });
       
@@ -110,6 +111,16 @@ exports.importExcel = async (req, res) => {
         continue;
       }
       
+      // Check class capacity before assigning student
+      const classInfo = await Class.findByPk(classId);
+      const currentStudentCount = await User.count({ where: { classId, role: 'student' } });
+      
+      if (currentStudentCount >= classInfo.capacity) {
+        console.log(`❌ ERROR: Class ${st.Class} is at full capacity (${currentStudentCount}/${classInfo.capacity}). Cannot add student ${st.Name}`);
+        skippedCount++;
+        continue;
+      }
+      
       let doc = await User.findOne({ where: { email: st.Email } });
       if (!doc) {
         doc = await User.create({ 
@@ -119,16 +130,16 @@ exports.importExcel = async (req, res) => {
           role: 'student', 
           classId 
         });
-        console.log(`✅ CREATED: Student ${st.Name} in class ${st.Class} (ID: ${doc.id})`);
+        console.log(`✅ CREATED: Student ${st.Name} in class ${st.Class} (ID: ${doc.id}) - Class capacity: ${currentStudentCount + 1}/${classInfo.capacity}`);
         processedCount++;
       } else {
         console.log(`Found existing student: ${doc.name} (ID: ${doc.id})`);
         if (!doc.classId && classId) {
           await doc.update({ classId });
-          console.log(`✅ UPDATED: Student ${st.Name} assigned to class ${st.Class}`);
+          console.log(`✅ UPDATED: Student ${st.Name} assigned to class ${st.Class} - Class capacity: ${currentStudentCount + 1}/${classInfo.capacity}`);
         } else if (doc.classId !== classId) {
           await doc.update({ classId });
-          console.log(`✅ UPDATED: Student ${st.Name} moved from class ${doc.classId} to ${classId}`);
+          console.log(`✅ UPDATED: Student ${st.Name} moved from class ${doc.classId} to ${classId} - Class capacity: ${currentStudentCount + 1}/${classInfo.capacity}`);
         } else {
           console.log(`ℹ️  Student ${st.Name} already in correct class ${st.Class}`);
         }
@@ -254,7 +265,8 @@ exports.importSheet = async (req, res) => {
               departmentId: dept.id, 
               year: Number(c.Year), 
               semester: Number(c.Semester || c.Sem), 
-              section: c.Section || 'A' 
+              section: c.Section || 'A',
+              capacity: Number(c.Capacity) || 50
             }
           });
         }

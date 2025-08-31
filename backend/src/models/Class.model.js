@@ -44,6 +44,15 @@ const Class = sequelize.define('Class', {
     allowNull: false,
     defaultValue: 'A'
   },
+  capacity: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 50,
+    validate: {
+      min: 1,
+      max: 200
+    }
+  },
   counsellorId: {
     type: DataTypes.INTEGER,
     allowNull: true,
